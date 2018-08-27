@@ -71,7 +71,7 @@ THE SOFTWARE.
 //---
 // Remainder of this file only compiles with HCC
 #if defined __HCC__
-#include <grid_launch.h>
+#include "grid_launch.h"
 #include "hc_printf.hpp"
 // TODO-HCC-GL - change this to typedef.
 // typedef grid_launch_parm hipLaunchParm ;
