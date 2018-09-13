@@ -644,7 +644,7 @@ __device__ void __named_sync(int a, int b);
 
 // Clock functions
 #if __HCC__
-extern "C" uint64_t __clock_u64()  __HC__;
+extern "C" uint64_t __clock_u64()  [[hc]];
 #endif
 
 __device__

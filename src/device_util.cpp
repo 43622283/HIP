@@ -20,12 +20,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
-#include <hc.hpp>
-#include <grid_launch.h>
-#include <hc_math.hpp>
 #include "device_util.h"
 #include "hip/hcc_detail/device_functions.h"
+#include "hip/hcc_detail/grid_launch.h"
 #include "hip/hip_runtime.h"
+
+#include <hc.hpp>
+#include <hc_math.hpp>
+
 #include <atomic>
 
 //=================================================================================================

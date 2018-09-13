@@ -34,7 +34,7 @@ THE SOFTWARE.
 // HCC's own math functions should be included first, otherwise there will
 // be conflicts when hip/math_functions.h is included before hip/hip_runtime.h.
 #ifdef __HCC__
-#include "kalmar_math.h"
+    #include "hc_math.h"
 #endif
 
 #pragma push_macro("__DEVICE__")

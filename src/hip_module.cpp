@@ -392,8 +392,8 @@ hsa_executable_symbol_t find_kernel_by_name(hsa_executable_t executable, const c
     return r.second;
 }
 
-string read_elf_file_as_string(
-    const void* file) {  // Precondition: file points to an ELF image that was BITWISE loaded
+string read_elf_file_as_string(const void* file) {
+    // Precondition: file points to an ELF image that was BITWISE loaded
     //               into process accessible memory, and not one loaded by
     //               the loader. This is because in the latter case
     //               alignment may differ, which will break the size
@@ -402,10 +402,11 @@ string read_elf_file_as_string(
     //               Little Endian.
     if (!file) return {};
 
-    auto h = static_cast<const Elf64_Ehdr*>(file);
+    auto h = static_cast<const ELFIO::Elf64_Ehdr*>(file);
     auto s = static_cast<const char*>(file);
     // This assumes the common case of SHT being the last part of the ELF.
-    auto sz = sizeof(Elf64_Ehdr) + h->e_shoff + h->e_shentsize * h->e_shnum;
+    auto sz =
+        sizeof(ELFIO::Elf64_Ehdr) + h->e_shoff + h->e_shentsize * h->e_shnum;
 
     return string{s, s + sz};
 }
