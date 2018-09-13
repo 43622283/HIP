@@ -592,16 +592,16 @@ inline
 float __frsqrt_rn(float x) { return __llvm_amdgcn_rsq_f32(x); }
 __DEVICE__
 inline
-float __fsqrt_rd(float x) { return __ocml_sqrt_rtp_f32(x); }
+float __fsqrt_rd(float x) { return __ocml_sqrt_f32(x); }
 __DEVICE__
 inline
-float __fsqrt_rn(float x) { return __ocml_sqrt_rte_f32(x); }
+float __fsqrt_rn(float x) { return __ocml_sqrt_f32(x); }
 __DEVICE__
 inline
-float __fsqrt_ru(float x) { return __ocml_sqrt_rtn_f32(x); }
+float __fsqrt_ru(float x) { return __ocml_sqrt_f32(x); }
 __DEVICE__
 inline
-float __fsqrt_rz(float x) { return __ocml_sqrt_rtz_f32(x); }
+float __fsqrt_rz(float x) { return __ocml_sqrt_f32(x); }
 __DEVICE__
 inline
 float __fsub_rd(float x, float y) { return __ocml_sub_rtp_f32(x, y); }
