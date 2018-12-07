@@ -182,7 +182,6 @@ if(HIP_PLATFORM STREQUAL "hcc")
         src/hip_error.cpp
         src/hip_event.cpp
         src/hip_memory.cpp
-        src/hip_peer.cpp
         src/hip_stream.cpp
         src/hip_module.cpp
         src/hip_db.cpp
@@ -220,6 +219,50 @@ if(HIP_PLATFORM STREQUAL "hcc")
     file(WRITE "${PROJECT_BINARY_DIR}/.hipInfo" ${_buildInfo})
 endif()
 
+#  HCC2 does not use hcc compiler, just clang
+if(HIP_PLATFORM STREQUAL "hcc2")
+    if(NOT DEFINED HCC2)
+	if(NOT DEFINED ENV{HCC2})
+            set(HCC2 "/opt/rocm/hcc2" CACHE PATH "Path to which HCC2 has been installed")
+        else()
+            set(HCC2 $ENV{HCC2} CACHE PATH "Path to which HCC2 has been installed")
+        endif()
+    endif()
+    include_directories(${PROJECT_SOURCE_DIR}/include ${HCC2}/include)
+    message("ADDING INCLUDE DIRS ${PROJECT_SOURCE_DIR}/include ${HCC2}/include")
+    set(HIP_HCC2_BUILD_FLAGS "-D__HIP_PLATFORM_HCC__=1")
+    set(HIP_HCC2_BUILD_FLAGS "${HIP_HCC2_BUILD_FLAGS} -DLITTLEENDIAN_CPU=1")
+    if(COMPILE_HIP_ATP_MARKER)
+        include_directories(/opt/rocm/profiler/CXLActivityLogger/include)
+        set(HIP_HCC2_BUILD_FLAGS "${HIP_HCC2_BUILD_FLAGS} -DCOMPILE_HIP_ATP_MARKER=1")
+    endif()
+
+    # Set compiler and compiler flags
+    set(CMAKE_CXX_COMPILER "${HCC2}/bin/clang++")
+    set(CMAKE_C_COMPILER   "${HCC2}/bin/clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${HIP_HCC2_BUILD_FLAGS}")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${HIP_HCC2_BUILD_FLAGS}")
+
+    #  -------------------------------------
+    set(SOURCE_FILES_RUNTIME
+        src/code_object_bundle.cpp
+        src/hip_clang.cpp
+        src/hip_hcc.cpp
+        src/hip_stream.cpp
+        src/hip_texture.cpp
+        src/hip_surface.cpp
+        src/program_state.cpp)
+    #  -------------------------------------
+
+    if(COMPILE_HIP_ATP_MARKER)
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/opt/rocm/profiler/CXLActivityLogger/bin/x86_64 -lCXLActivityLogger")
+    endif()
+    add_library(hip_hcc SHARED ${SOURCE_FILES_RUNTIME})
+    target_link_libraries(hip_hcc PRIVATE hc_am)
+    # Generate .hipInfo
+    file(WRITE "${PROJECT_BINARY_DIR}/.hipInfo" ${_buildInfo})
+endif()
+
 # Generate .hipVersion
 file(WRITE "${PROJECT_BINARY_DIR}/.hipVersion" ${_versionInfo})
 
@@ -238,6 +281,10 @@ if(HIP_PLATFORM STREQUAL "hcc")
     install(TARGETS hip_hcc_static hip_hcc hip_device DESTINATION lib)
 
     # Install .hipInfo
+    install(FILES ${PROJECT_BINARY_DIR}/.hipInfo DESTINATION lib)
+endif()
+if(HIP_PLATFORM STREQUAL "hcc2")
+    install(TARGETS hip_hcc DESTINATION lib)
     install(FILES ${PROJECT_BINARY_DIR}/.hipInfo DESTINATION lib)
 endif()
 
