@@ -596,7 +596,7 @@ void ihipDevice_t::locked_reset() {
     // the HCC runtime as well such as the printf buffer.  Re-initialze the printf buffer as a
     // workaround for now.
 #ifdef HC_FEATURE_PRINTF
-    detail::getContext()->initPrintfBuffer();
+    Kalmar::getContext()->initPrintfBuffer();
 #endif
 };
 
@@ -2179,16 +2179,16 @@ void ihipStream_t::addSymbolPtrToTracker(hc::accelerator& acc, void* ptr, size_t
 void ihipStream_t::lockedSymbolCopySync(hc::accelerator& acc, void* dst, void* src,
                                         size_t sizeBytes, size_t offset, unsigned kind) {
     if (kind == hipMemcpyHostToHost) {
-        acc.memcpy_symbol(dst, (void*)src, sizeBytes, offset, detail::hcMemcpyHostToHost);
+        acc.memcpy_symbol(dst, (void*)src, sizeBytes, offset, hc::hcMemcpyHostToHost);
     }
     if (kind == hipMemcpyHostToDevice) {
         acc.memcpy_symbol(dst, (void*)src, sizeBytes, offset);
     }
     if (kind == hipMemcpyDeviceToDevice) {
-        acc.memcpy_symbol(dst, (void*)src, sizeBytes, offset, detail::hcMemcpyDeviceToDevice);
+        acc.memcpy_symbol(dst, (void*)src, sizeBytes, offset, hc::hcMemcpyDeviceToDevice);
     }
     if (kind == hipMemcpyDeviceToHost) {
-        acc.memcpy_symbol((void*)src, (void*)dst, sizeBytes, offset, detail::hcMemcpyDeviceToHost);
+        acc.memcpy_symbol((void*)src, (void*)dst, sizeBytes, offset, hc::hcMemcpyDeviceToHost);
     }
 }
 
@@ -2225,7 +2225,7 @@ void ihipStream_t::lockedSymbolCopyAsync(hc::accelerator& acc, void* dst, void* 
             LockedAccessor_StreamCrit_t crit(_criticalData);
             this->wait(crit);
             acc.memcpy_symbol((void*)src, (void*)dst, sizeBytes, offset,
-                              detail::hcMemcpyDeviceToHost);
+                              hc::hcMemcpyDeviceToHost);
         }
     }
 }
@@ -2291,7 +2291,7 @@ void ihipStream_t::locked_copyAsync(void* dst, const void* src, size_t sizeBytes
                     crit->_av.copy_async_ext(src, dst, sizeBytes, hcCopyDir, srcPtrInfo, dstPtrInfo,
                                              &copyDevice->getDevice()->_acc);
                 }
-            } catch (detail::runtime_exception) {
+            } catch (hc::runtime_exception) {
                 throw ihipException(hipErrorRuntimeOther);
             };
 
