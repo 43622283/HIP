@@ -97,6 +97,8 @@ int HIP_INIT_ALLOC = -1;
 int HIP_SYNC_STREAM_WAIT = 0;
 int HIP_FORCE_NULL_STREAM = 0;
 
+int HIP_DUMP_CODE_OBJECT = 0;
+
 
 #if (__hcc_workweek__ >= 17300)
 // Make sure we have required bug fix in HCC
@@ -177,7 +179,7 @@ uint64_t recordApiTrace(std::string* fullStr, const std::string& apiStr) {
 
 
     if (COMPILE_HIP_DB && HIP_TRACE_API) {
-        fprintf(stderr, "%s<<hip-api tid:%s @%lu%s\n", API_COLOR, fullStr->c_str(), apiStartTick,
+        fprintf(stderr, "%s<<hip-api pid:%d tid:%s @%lu%s\n", API_COLOR, tls_tidInfo.pid(), fullStr->c_str(), apiStartTick,
                 API_COLOR_END);
     }
 
@@ -235,6 +237,7 @@ hipError_t ihipSynchronize(void) {
 //=================================================================================================
 TidInfo::TidInfo() : _apiSeqNum(0) {
     _shortTid = g_lastShortTid.fetch_add(1);
+    _pid = getpid(); 
 
     if (COMPILE_HIP_DB && HIP_TRACE_API) {
         std::stringstream tid_ss;
@@ -1294,6 +1297,10 @@ void HipReadEnv() {
                "overridden by specifying hipEventReleaseToSystem or hipEventReleaseToDevice flag "
                "when creating the event.");
 
+    READ_ENV_I(release, HIP_DUMP_CODE_OBJECT, 0,
+               "If set, dump code object as __hip_dump_code_object[nnnn].o in the current directory,"
+               "where nnnn is the index number.");
+
     // Some flags have both compile-time and runtime flags - generate a warning if user enables the
     // runtime flag but the compile-time flag is disabled.
     if (HIP_DB && !COMPILE_HIP_DB) {
@@ -1529,7 +1536,7 @@ void ihipPrintKernelLaunch(const char* kernelName, const grid_launch_parm* lp,
     if ((HIP_TRACE_API & (1 << TRACE_KCMD)) || HIP_PROFILE_API ||
         (COMPILE_HIP_DB & HIP_TRACE_API)) {
         std::stringstream os;
-        os << tls_tidInfo.tid() << "." << tls_tidInfo.apiSeqNum() << " hipLaunchKernel '"
+        os << tls_tidInfo.pid() << " " << tls_tidInfo.tid() << "." << tls_tidInfo.apiSeqNum() << " hipLaunchKernel '"
            << kernelName << "'"
            << " gridDim:" << lp->grid_dim << " groupDim:" << lp->group_dim << " sharedMem:+"
            << lp->dynamic_group_mem_bytes << " " << *stream;
@@ -2107,6 +2114,59 @@ void ihipStream_t::locked_copySync(void* dst, const void* src, size_t sizeBytes,
     }
 }
 
+void ihipStream_t::locked_copy2DSync(void* dst, const void* src, size_t width, size_t height, size_t srcPitch, size_t dstPitch, unsigned kind,
+                                   bool resolveOn) {
+    ihipCtx_t* ctx = this->getCtx();
+    const ihipDevice_t* device = ctx->getDevice();
+
+    if (device == NULL) {
+        throw ihipException(hipErrorInvalidDevice);
+    }
+    size_t sizeBytes = width*height;
+    hc::accelerator acc;
+#if (__hcc_workweek__ >= 17332)
+    hc::AmPointerInfo dstPtrInfo(NULL, NULL, NULL, 0, acc, 0, 0);
+    hc::AmPointerInfo srcPtrInfo(NULL, NULL, NULL, 0, acc, 0, 0);
+#else
+    hc::AmPointerInfo dstPtrInfo(NULL, NULL, 0, acc, 0, 0);
+    hc::AmPointerInfo srcPtrInfo(NULL, NULL, 0, acc, 0, 0);
+#endif
+    bool dstTracked = getTailoredPtrInfo("    dst", &dstPtrInfo, dst, sizeBytes);
+    bool srcTracked = getTailoredPtrInfo("    src", &srcPtrInfo, src, sizeBytes);
+
+    // Some code in HCC and in printPointerInfo uses _sizeBytes==0 as an indication ptr is not
+    //     // valid, so check it here:
+    if (!dstTracked) {
+        assert(dstPtrInfo._sizeBytes == 0);
+    }
+    if (!srcTracked) {
+        assert(srcPtrInfo._sizeBytes == 0);
+    }
+
+
+    hc::hcCommandKind hcCopyDir;
+    ihipCtx_t* copyDevice;
+    bool forceUnpinnedCopy;
+    resolveHcMemcpyDirection(kind, &dstPtrInfo, &srcPtrInfo, &hcCopyDir, &copyDevice,
+                             &forceUnpinnedCopy);
+
+    {
+        LockedAccessor_StreamCrit_t crit(_criticalData);
+        tprintf(DB_COPY,
+                "copy2DSync copyDev:%d  dst=%p (phys_dev:%d, isDevMem:%d)  src=%p(phys_dev:%d, "
+                "isDevMem:%d)   sz=%zu dir=%s forceUnpinnedCopy=%d\n",
+                copyDevice ? copyDevice->getDeviceNum() : -1, dst, dstPtrInfo._appId,
+                dstPtrInfo._isInDeviceMem, src, srcPtrInfo._appId, srcPtrInfo._isInDeviceMem,
+                sizeBytes, hcMemcpyStr(hcCopyDir), forceUnpinnedCopy);
+        printPointerInfo(DB_COPY, "  dst", dst, dstPtrInfo);
+        printPointerInfo(DB_COPY, "  src", src, srcPtrInfo);
+
+        crit->_av.copy2d_ext(src, dst, width, height, srcPitch, dstPitch, hcCopyDir, srcPtrInfo, dstPtrInfo,
+                           copyDevice ? &copyDevice->getDevice()->_acc : nullptr,
+                           forceUnpinnedCopy);
+    }
+}
+
 void ihipStream_t::addSymbolPtrToTracker(hc::accelerator& acc, void* ptr, size_t sizeBytes) {
 #if (__hcc_workweek__ >= 17332)
     hc::AmPointerInfo ptrInfo(NULL, ptr, ptr, sizeBytes, acc, true, false);
@@ -2277,12 +2337,74 @@ void ihipStream_t::locked_copyAsync(void* dst, const void* src, size_t sizeBytes
     }
 }
 
+void ihipStream_t::locked_copy2DAsync(void* dst, const void* src, size_t width, size_t height, size_t srcPitch, size_t dstPitch, unsigned kind)
+{
+    const ihipCtx_t* ctx = this->getCtx();
+
+    if ((ctx == nullptr) || (ctx->getDevice() == nullptr)) {
+        tprintf(DB_COPY, "locked_copy2DAsync bad ctx or device\n");
+        throw ihipException(hipErrorInvalidDevice);
+    }
+    hc::accelerator acc;
+    size_t sizeBytes = width*height;
+#if (__hcc_workweek__ >= 17332)
+    hc::AmPointerInfo dstPtrInfo(NULL, NULL, NULL, 0, acc, 0, 0);
+    hc::AmPointerInfo srcPtrInfo(NULL, NULL, NULL, 0, acc, 0, 0);
+#else
+    hc::AmPointerInfo dstPtrInfo(NULL, NULL, 0, acc, 0, 0);
+    hc::AmPointerInfo srcPtrInfo(NULL, NULL, 0, acc, 0, 0);
+#endif
+    tprintf(DB_COPY, "copy2DAsync dst=%p src=%p, sz=%zu\n", dst, src, sizeBytes);
+    bool dstTracked = getTailoredPtrInfo("    dst", &dstPtrInfo, dst, sizeBytes);
+    bool srcTracked = getTailoredPtrInfo("    src", &srcPtrInfo, src, sizeBytes);
+
+
+    hc::hcCommandKind hcCopyDir;
+    ihipCtx_t* copyDevice;
+    bool forceUnpinnedCopy;
+    resolveHcMemcpyDirection(kind, &dstPtrInfo, &srcPtrInfo, &hcCopyDir, &copyDevice,
+                             &forceUnpinnedCopy);
+    tprintf(DB_COPY, "  copyDev:%d   dir=%s forceUnpinnedCopy=%d\n",
+            copyDevice ? copyDevice->getDeviceNum() : -1, hcMemcpyStr(hcCopyDir),
+               forceUnpinnedCopy);
+    if (dstTracked && srcTracked && !forceUnpinnedCopy &&
+        copyDevice /*code below assumes this is !nullptr*/) {
+        LockedAccessor_StreamCrit_t crit(_criticalData);
+
+        try {
+             if (HIP_FORCE_SYNC_COPY) {
+                 crit->_av.copy2d_ext(src, dst, width, height, srcPitch, dstPitch, hcCopyDir, srcPtrInfo, dstPtrInfo,
+                           &copyDevice->getDevice()->_acc,
+                           forceUnpinnedCopy);
+
+             } else {
+                 crit->_av.copy2d_async_ext(src, dst, width, height, srcPitch, dstPitch, hcCopyDir, srcPtrInfo, dstPtrInfo,
+                                          &copyDevice->getDevice()->_acc);
+             }
+         } catch (Kalmar::runtime_exception) {
+                throw ihipException(hipErrorRuntimeOther);
+         };
+
+         if (HIP_API_BLOCKING) {
+             tprintf(DB_SYNC, "%s LAUNCH_BLOCKING for completion of hipMemcpy2DAsync(sz=%zu)\n",
+                        ToString(this).c_str(), sizeBytes);
+             this->wait(crit);
+         }
+
+    } else {
+         //Do sync 2D copy
+         LockedAccessor_StreamCrit_t crit(_criticalData);
+         crit->_av.copy2d_ext(src, dst, width, height, srcPitch, dstPitch, hcCopyDir, srcPtrInfo, dstPtrInfo,
+                           copyDevice ? &copyDevice->getDevice()->_acc : nullptr,
+                           forceUnpinnedCopy);
+    } 
+}
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 // Profiler, really these should live elsewhere:
 hipError_t hipProfilerStart() {
-    HIP_INIT_API();
+    HIP_INIT_API(hipProfilerStart);
 #if COMPILE_HIP_ATP_MARKER
     amdtResumeProfiling(AMDT_ALL_PROFILING);
 #endif
@@ -2292,7 +2414,7 @@ hipError_t hipProfilerStart() {
 
 
 hipError_t hipProfilerStop() {
-    HIP_INIT_API();
+    HIP_INIT_API(hipProfilerStop);
 #if COMPILE_HIP_ATP_MARKER
     amdtStopProfiling(AMDT_ALL_PROFILING);
 #endif
@@ -2307,7 +2429,7 @@ hipError_t hipProfilerStop() {
 
 //---
 hipError_t hipHccGetAccelerator(int deviceId, hc::accelerator* acc) {
-    HIP_INIT_API(deviceId, acc);
+    HIP_INIT_API(hipHccGetAccelerator, deviceId, acc);
 
     const ihipDevice_t* device = ihipGetDevice(deviceId);
     hipError_t err;
@@ -2323,7 +2445,7 @@ hipError_t hipHccGetAccelerator(int deviceId, hc::accelerator* acc) {
 
 //---
 hipError_t hipHccGetAcceleratorView(hipStream_t stream, hc::accelerator_view** av) {
-    HIP_INIT_API(stream, av);
+    HIP_INIT_API(hipHccGetAcceleratorView, stream, av);
 
     if (stream == hipStreamNull) {
         ihipCtx_t* device = ihipGetTlsDefaultCtx();

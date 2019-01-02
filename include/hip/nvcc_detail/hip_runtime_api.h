@@ -105,8 +105,10 @@ typedef enum hipChannelFormatKind {
 #define hipHostMallocCoherent 0x0
 #define hipHostMallocNonCoherent 0x0
 
+#define hipHostRegisterDefault cudaHostRegisterDefault
 #define hipHostRegisterPortable cudaHostRegisterPortable
 #define hipHostRegisterMapped cudaHostRegisterMapped
+#define hipHostRegisterIoMemory cudaHostRegisterIoMemory
 
 #define HIP_LAUNCH_PARAM_BUFFER_POINTER CU_LAUNCH_PARAM_BUFFER_POINTER
 #define HIP_LAUNCH_PARAM_BUFFER_SIZE CU_LAUNCH_PARAM_BUFFER_SIZE
@@ -549,6 +551,14 @@ inline static hipError_t hipMemcpyFromSymbolAsync(void* dst, const void* symbolN
         dst, symbolName, sizeBytes, offset, hipMemcpyKindToCudaMemcpyKind(kind), stream));
 }
 
+inline static hipError_t hipGetSymbolAddress(void** devPtr, const void* symbolName) {
+    return hipCUDAErrorTohipError(cudaGetSymbolAddress(devPtr, symbolName));
+}
+
+inline static hipError_t hipGetSymbolSize(size_t* size, const void* symbolName) {
+    return hipCUDAErrorTohipError(cudaGetSymbolSize(size, symbolName));
+}
+
 inline static hipError_t hipMemcpy2D(void* dst, size_t dpitch, const void* src, size_t spitch,
                                      size_t width, size_t height, hipMemcpyKind kind) {
     return hipCUDAErrorTohipError(
@@ -890,6 +900,13 @@ inline static hipError_t hipStreamCreateWithFlags(hipStream_t* stream, unsigned 
     return hipCUDAErrorTohipError(cudaStreamCreateWithFlags(stream, flags));
 }
 
+inline static hipError_t hipStreamCreateWithPriority(hipStream_t* stream, unsigned int flags, int priority) {
+    return hipCUDAErrorTohipError(cudaStreamCreateWithPriority(stream, flags, priority));
+}
+
+inline static hipError_t hipDeviceGetStreamPriorityRange(int* leastPriority, int* greatestPriority) {
+    return hipCUDAErrorTohipError(cudaDeviceGetStreamPriorityRange(leastPriority, greatestPriority));
+}
 
 inline static hipError_t hipStreamCreate(hipStream_t* stream) {
     return hipCUDAErrorTohipError(cudaStreamCreate(stream));
@@ -903,6 +920,13 @@ inline static hipError_t hipStreamDestroy(hipStream_t stream) {
     return hipCUDAErrorTohipError(cudaStreamDestroy(stream));
 }
 
+inline static hipError_t hipStreamGetFlags(hipStream_t stream, unsigned int *flags) {
+    return hipCUDAErrorTohipError(cudaStreamGetFlags(stream, flags));
+}
+
+inline static hipError_t hipStreamGetPriority(hipStream_t stream, int *priority) {
+    return hipCUDAErrorTohipError(cudaStreamGetPriority(stream, priority));
+}
 
 inline static hipError_t hipStreamWaitEvent(hipStream_t stream, hipEvent_t event,
                                             unsigned int flags) {

@@ -53,6 +53,9 @@ sub parse_config_file {
 $verbose = $ENV{'HIPCC_VERBOSE'} // 0;
 # Verbose: 0x1=commands, 0x2=paths, 0x4=hipcc args
 
+$HIPCC_COMPILE_FLAGS_APPEND=$ENV{'HIPCC_COMPILE_FLAGS_APPEND'};
+$HIPCC_LINK_FLAGS_APPEND=$ENV{'HIPCC_LINK_FLAGS_APPEND'};
+
 $HIP_PATH=$ENV{'HIP_PATH'} // dirname (dirname $0); # use parent directory of hipcc
 $HIP_VDI_HOME=$ENV{'HIP_VDI_HOME'};
 $HIP_CLANG_PATH=$ENV{'HIP_CLANG_PATH'};
@@ -92,15 +95,19 @@ $HIP_VERSION= `$HIP_PATH/bin/hipconfig --version`;
 ($HIP_VERSION_MAJOR, $HIP_VERSION_MINOR, $HIP_VERSION_PATCH) = split(/\./, $HIP_VERSION);
 
 if (defined $HIP_VDI_HOME) {
+    my $bits = "";
+    if (-d "$HIP_VDI_HOME/bin/x86_64") {
+        $bits = "/x86_64";
+    }
     if (!defined $HIP_CLANG_PATH) {
-        $HIP_CLANG_PATH = "$HIP_VDI_HOME/bin/x86_64";
+        $HIP_CLANG_PATH = "$HIP_VDI_HOME/bin" . $bits;
     }
     if (!defined $DEVICE_LIB_PATH) {
-        $DEVICE_LIB_PATH = "$HIP_VDI_HOME/lib/x86_64/bitcode";
+        $DEVICE_LIB_PATH = "$HIP_VDI_HOME/lib" . $bits . "/bitcode";
     }
     $HIP_CLANG_INCLUDE_PATH = "$HIP_VDI_HOME/include/clang";
     $HIP_INCLUDE_PATH = "$HIP_VDI_HOME/include";
-    $HIP_LIB_PATH = "$HIP_VDI_HOME/lib/x86_64";
+    $HIP_LIB_PATH = "$HIP_VDI_HOME/lib" . $bits;
 }
 
 if (defined $HIP_CLANG_PATH) {
@@ -157,8 +164,12 @@ if ($HIP_PLATFORM eq "clang") {
         print ("DEVICE_LIB_PATH=$DEVICE_LIB_PATH\n");
     }
 
-    $HIPCXXFLAGS .= " -std=c++11 -isystem $HIP_CLANG_INCLUDE_PATH";
-    $HIPLDFLAGS .= " --hip-device-lib-path=$DEVICE_LIB_PATH -L$HIP_LIB_PATH -Wl,--rpath=$HIP_LIB_PATH -lhip_hcc";
+
+    # By default, hip-clang assumes -fno-gpu-rdc, therefore device lib path
+    # is required.
+    $HIP_DEVLIB_FLAGS = " --hip-device-lib-path=$DEVICE_LIB_PATH";
+    $HIPCXXFLAGS .= " $HIP_DEVLIB_FLAGS -std=c++11 -isystem $HIP_CLANG_INCLUDE_PATH";
+    $HIPLDFLAGS .= " $HIP_DEVLIB_FLAGS -L$HIP_LIB_PATH -Wl,--rpath=$HIP_LIB_PATH -lhip_hcc";
     if ($HIP_CLANG_HCC_COMPAT_MODE) {
         ## Allow __fp16 as function parameter and return type.
         $HIPCXXFLAGS .= " -Xclang -fallow-half-arguments-and-returns -D__HIP_HCC_COMPAT_MODE__=1";
@@ -327,7 +338,7 @@ foreach $arg (@ARGV)
     $trimarg = $arg;
     $trimarg =~ s/^\s+|\s+$//g;  # Remive whitespace
     my $swallowArg = 0;
-    if ($arg eq '-c') {
+    if ($arg eq '-c' or $arg eq '--genco') {
         $compileOnly = 1;
         $needCXXFLAGS = 1;
         $needLDFLAGS  = 0;
@@ -377,6 +388,10 @@ foreach $arg (@ARGV)
     # hip-clang does not accept --amdgpu-target= options.
     if (($arg =~ /--amdgpu-target=/) and $HIP_PLATFORM eq 'clang' ) {
         $swallowArg = 1;
+    }
+
+    if (($arg =~ /--genco/) and $HIP_PLATFORM eq 'clang' ) {
+        $arg = "--cuda-device-only";
     }
 
     if(($trimarg eq '-stdlib=libstdc++') and ($setStdLib eq 0))
@@ -491,6 +506,10 @@ foreach $arg (@ARGV)
             $obj = "$tmpdir/$obj";
             my $fileType = `file $obj`;
             my $isObj = ($fileType =~ m/ELF/ or $fileType =~ m/COFF/);
+            if ($fileType =~ m/ELF/) {
+                my $sections = `readelf -e -W $obj`;
+                $isObj = !($sections =~ m/__CLANG_OFFLOAD_BUNDLE__/);
+            }
             $allIsObj = ($allIsObj and $isObj);
             if ($isObj) {
                 $realObjs = ($realObjs . " " . $obj);
@@ -680,7 +699,11 @@ if($HIP_PLATFORM eq "hcc" or $HIP_PLATFORM eq "clang"){
         $HIPCXXFLAGS .= " -D__HIP_ARCH_GFX900__=1 ";
     }
     if ($target_gfx906 eq 1) {
-        $HIPLDFLAGS .= " --amdgpu-target=gfx906";
+        $GPU_ARCH_ARG = $GPU_ARCH_OPT . "gfx906";
+        $HIPLDFLAGS .= $GPU_ARCH_ARG;
+        if ($HIP_PLATFORM eq 'clang') {
+            $HIPCXXFLAGS .= $GPU_ARCH_ARG;;
+        }
         $HIPCXXFLAGS .= " -D__HIP_ARCH_GFX906__=1 ";
     }
 }
@@ -712,9 +735,9 @@ if ($setStdLib eq 0 and $HIP_PLATFORM eq 'hcc')
 
 if ($needHipHcc) {
     if ($linkType eq 0) {
-        substr($HIPLDFLAGS,0,0) = "  $HIP_PATH/lib/libhip_hcc_static.a $HIP_PATH/lib/libhip_device.a " ;
+        substr($HIPLDFLAGS,0,0) = "  $HIP_PATH/lib/libhip_hcc_static.a " ;
     } else {
-        substr($HIPLDFLAGS,0,0) = "  -Wl,--rpath=$HIP_PATH/lib $HIP_PATH/lib/libhip_hcc.so $HIP_PATH/lib/libhip_device.a ";
+        substr($HIPLDFLAGS,0,0) = "  -Wl,--rpath=$HIP_PATH/lib $HIP_PATH/lib/libhip_hcc.so ";
     }
 }
 
@@ -723,7 +746,16 @@ if ($needHipHcc) {
 # Reason is that NVCC uses the file extension to determine whether to compile in CUDA mode or
 # pass-through CPP mode.
 
+if ($HIP_PLATFORM eq "clang") {
+    $HIPLDFLAGS .= " -lgcc_s -lgcc -lpthread -lm";
+}
 
+if ($HIPCC_COMPILE_FLAGS_APPEND) {
+    $HIPCXXFLAGS .= " $HIPCC_COMPILE_FLAGS_APPEND";
+}
+if ($HIPCC_LINK_FLAGS_APPEND) {
+    $HIPLDFLAGS .= " $HIPCC_LINK_FLAGS_APPEND";
+}
 
 my $CMD="$HIPCC";
 if ($needCXXFLAGS) {
@@ -733,9 +765,6 @@ if ($needLDFLAGS and not $compileOnly) {
     $CMD .= " $HIPLDFLAGS";
 }
 $CMD .= " $toolArgs";
-if ($needLDFLAGS and not $compileOnly and $HIP_PLATFORM eq "clang") {
-    $CMD .= " -lgcc_s -lgcc -lpthread -lm";
-}
 
 if ($verbose & 0x1) {
     print "hipcc-cmd: ", $CMD, "\n";

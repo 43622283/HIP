@@ -167,7 +167,6 @@ def docker_build_inside_image( def build_image, String inside_args, String platf
     }
 
     // Cap the maximum amount of testing, in case of hangs
-    // Excluding hipPrintfKernel test from automation; variable fails on CI test machines
     timeout(time: 1, unit: 'HOURS')
     {
       stage("${platform} unit testing")
@@ -177,7 +176,7 @@ def docker_build_inside_image( def build_image, String inside_args, String platf
             cd ${build_dir_rel}
             make install -j\$(nproc)
             make build_tests -i -j\$(nproc)
-            ctest -E hipVectorTypes
+            ctest
           """
         // If unit tests output a junit or xunit file in the future, jenkins can parse that file
         // to display test results on the dashboard
@@ -295,13 +294,13 @@ def docker_upload_dockerhub( String local_org, String image_name, String remote_
 String build_config = 'Release'
 String job_name = env.JOB_NAME.toLowerCase( )
 
-// The following launches 3 builds in parallel: hcc-ctu, hcc-1.6 and cuda
-parallel rocm_1_9:
+// The following launches 3 builds in parallel: rocm-head, rocm-1.9.x and cuda-9.x
+parallel rocm_2_0:
 {
   node('hip-rocm')
   {
-    String hcc_ver = 'rocm-1.9.x'
-    String from_image = 'ci_test_nodes/rocm-1.9.x/ubuntu-16.04:latest'
+    String hcc_ver = 'rocm-2.0.x'
+    String from_image = 'ci_test_nodes/rocm-2.0.x/ubuntu-16.04:latest'
     String inside_args = '--device=/dev/kfd --device=/dev/dri --group-add=video'
 
     // Checkout source code, dependencies and version files
@@ -384,5 +383,41 @@ rocm_head:
     }
     docker_clean_images( job_name, hip_image_name )
     */
+  }
+},
+cuda_9_x:
+{
+  node('hip-cuda')
+  {
+    ////////////////////////////////////////////////////////////////////////
+    // Block of string constants customizing behavior for cuda
+    String nvcc_ver = 'nvcc-9.x'
+    String from_image = 'ci_test_nodes/cuda-9.x/ubuntu-16.04:latest'
+    String inside_args = '--runtime=nvidia';
+
+    // Checkout source code, dependencies and version files
+    String source_hip_rel = checkout_and_version( nvcc_ver )
+
+    // Create/reuse a docker image that represents the hip build environment
+    def hip_build_image = docker_build_image( nvcc_ver, 'hip', '', source_hip_rel, from_image )
+
+    // Print system information for the log
+    hip_build_image.inside( inside_args )
+    {
+      sh  """#!/usr/bin/env bash
+          set -x
+          nvidia-smi
+          nvcc --version
+        """
+    }
+
+    // Conctruct a binary directory path based on build config
+    String build_hip_rel = build_directory_rel( build_config );
+
+    // Build hip inside of the build environment
+    docker_build_inside_image( hip_build_image, inside_args, nvcc_ver, "-DHIP_NVCC_FLAGS=--Wno-deprecated-gpu-targets", build_config, source_hip_rel, build_hip_rel )
+
+    // Clean docker image
+    docker_clean_images( 'hip', docker_build_image_name( ) )
   }
 }

@@ -28,10 +28,11 @@ THE SOFTWARE.
  */
 
 #include "hip/hip_runtime.h"
+
 #include <test_common.h>
 
 #ifdef __HCC__
-    #include <hc.hpp>
+#include <hc.hpp>
 #endif
 
 // cudaA
@@ -53,7 +54,8 @@ __device__ __forceinline__ int sum1_forceinline(int a) { return a + 1; };
 
 __device__ __host__ float PlusOne(float x) { return x + 1.0; }
 
-__global__ void MyKernel(const float* a, const float* b, float* c, unsigned N) {
+__global__ void MyKernel(const float* a, const float* b, float* c,
+                         unsigned N) {
     // KERNELBEGIN;
 
     unsigned gid = threadIdx.x;
@@ -70,8 +72,7 @@ void callMyKernel() {
     const unsigned blockSize = 256;
     unsigned N = blockSize;
 
-    hipLaunchKernelGGL(
-        MyKernel, dim3(N / blockSize), dim3(blockSize), 0, 0, a, b, c, N);
+    hipLaunchKernelGGL(MyKernel, dim3(N / blockSize), dim3(blockSize), 0, 0, a, b, c, N);
 }
 
 
