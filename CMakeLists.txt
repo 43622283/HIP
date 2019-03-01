@@ -281,6 +281,9 @@ endif()
 install(FILES ${PROJECT_BINARY_DIR}/.hipVersion DESTINATION bin)
 
 # Install src, bin, include & cmake if necessary
+option(HIP_INSTALL_ALL_SOURCE "Install HIP source code" ON)
+if(HIP_INSTALL_ALL_SOURCE)
+
 execute_process(COMMAND test ${CMAKE_INSTALL_PREFIX} -ef ${CMAKE_CURRENT_SOURCE_DIR}
     RESULT_VARIABLE INSTALL_SOURCE)
 if(NOT ${INSTALL_SOURCE} EQUAL 0)
@@ -288,6 +291,10 @@ if(NOT ${INSTALL_SOURCE} EQUAL 0)
     install(DIRECTORY bin DESTINATION . USE_SOURCE_PERMISSIONS)
     install(DIRECTORY include DESTINATION .)
     install(DIRECTORY cmake DESTINATION .)
+endif()
+
+else()
+    install(DIRECTORY include DESTINATION .)
 endif()
 
 #############################
