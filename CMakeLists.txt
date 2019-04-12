@@ -5,6 +5,9 @@ project(hip)
 # Options
 #############################
 option(BUILD_HIPIFY_CLANG "Enable building the CUDA->HIP converter" OFF)
+option(HIP_INSTALL_INCLUDES_ONLY "Install HIP headers only" OFF)
+option(HIP_INSTALL_ALL_SOURCE "Install ALL  HIP source code" ON)
+if(NOT HIP_INSTALL_INCLUDES_ONLY)
 
 #############################
 # Setup config generation
@@ -306,6 +309,8 @@ endif()
 install(FILES ${PROJECT_BINARY_DIR}/.hipVersion DESTINATION bin)
 
 # Install src, bin, include & cmake if necessary
+if(HIP_INSTALL_ALL_SOURCE)
+
 execute_process(COMMAND test ${CMAKE_INSTALL_PREFIX} -ef ${CMAKE_CURRENT_SOURCE_DIR}
     RESULT_VARIABLE INSTALL_SOURCE)
 if(NOT ${INSTALL_SOURCE} EQUAL 0)
@@ -313,6 +318,10 @@ if(NOT ${INSTALL_SOURCE} EQUAL 0)
     install(DIRECTORY bin DESTINATION . USE_SOURCE_PERMISSIONS)
     install(DIRECTORY include DESTINATION .)
     install(DIRECTORY cmake DESTINATION .)
+endif()
+
+else()
+    install(DIRECTORY include DESTINATION .)
 endif()
 
 #############################
@@ -484,6 +493,10 @@ if(${RUN_HIT} EQUAL 0)
     add_custom_target(check COMMAND "${CMAKE_COMMAND}" --build . --target test DEPENDS build_tests)
 else()
     message(STATUS "Testing targets will not be available. To enable them please ensure that the HIP installation directory is writeable. Use -DCMAKE_INSTALL_PREFIX to specify a suitable location")
+endif()
+
+else() # HIP_INSTALL_INCLUDES_ONLY is on
+    install(DIRECTORY include DESTINATION .)
 endif()
 
 # vim: ts=4:sw=4:expandtab:smartindent
